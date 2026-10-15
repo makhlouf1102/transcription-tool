@@ -1,4 +1,9 @@
 /data/
+.env
+.env.*
+*.db
+*.sqlite
+*.sqlite3
 __pycache__/
 /clearword
 /clearword.exe

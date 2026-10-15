@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "gradient-text",
+        "value": "*",
+        "files": [
+          "web/index.html"
+        ],
+        "createdAt": "2026-10-10T23:47:27.524Z",
+        "reason": "Mantine bundles an unused generic gradient text selector; no app component applies a gradient variant."
+      }
+    ]
+  }
+}

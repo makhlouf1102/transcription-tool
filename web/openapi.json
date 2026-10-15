@@ -1,0 +1,173 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Clearword Local Transcription API",
+    "version": "1.0.0",
+    "description": "Loopback-only API for local scripts and agents. Uses the currently selected provider and API key saved in the app; callers do not send API keys. The client must run on the same machine as the server."
+  },
+  "servers": [{ "url": "http://127.0.0.1:8766" }],
+  "paths": {
+    "/api/config": {
+      "get": {
+        "operationId": "getConfig",
+        "summary": "Read saved transcription settings",
+        "responses": {
+          "200": { "description": "Saved settings", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Config" } } } },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "post": {
+        "operationId": "saveConfig",
+        "summary": "Save transcription settings",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Config" } } } },
+        "responses": {
+          "200": { "description": "Saved settings", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Config" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/config/validate": {
+      "post": {
+        "operationId": "validateApiKey",
+        "summary": "Validate the selected provider API key saved in settings",
+        "responses": {
+          "200": { "description": "Key accepted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationResult" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/transcriptions": {
+      "post": {
+        "operationId": "createTranscription",
+        "summary": "Upload media and start a background transcription",
+        "parameters": [
+          { "name": "X-Filename", "in": "header", "required": false, "schema": { "type": "string", "maxLength": 255 }, "description": "Defaults to media-file when omitted." },
+          { "name": "X-Name", "in": "header", "required": false, "schema": { "type": "string", "maxLength": 200 }, "description": "Transcript name. URL-encode non-ASCII characters. Defaults to the filename without its extension." },
+          { "name": "X-Model", "in": "header", "required": false, "schema": { "type": "string", "enum": ["gpt-4o-transcribe-diarize", "gpt-4o-transcribe", "whisper-1", "assemblyai-universal-2"] }, "description": "The model must belong to the provider selected in Settings." },
+          { "name": "X-Language", "in": "header", "required": false, "schema": { "type": "string", "maxLength": 20 } },
+          { "name": "X-Prompt", "in": "header", "required": false, "schema": { "type": "string", "maxLength": 4000 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } }
+        },
+        "responses": {
+          "202": { "description": "Job accepted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreatedJob" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "413": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "get": {
+        "operationId": "listTranscriptions",
+        "summary": "List the 100 most recent jobs",
+        "responses": {
+          "200": { "description": "Recent jobs", "content": { "application/json": { "schema": { "type": "object", "properties": { "jobs": { "type": "array", "items": { "$ref": "#/components/schemas/Job" } } }, "required": ["jobs"] } } } },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/transcriptions/{id}": {
+      "get": {
+        "operationId": "getTranscription",
+        "summary": "Get job status, or include the transcript with detail=1",
+        "parameters": [
+          { "$ref": "#/components/parameters/JobId" },
+          { "name": "detail", "in": "query", "required": false, "schema": { "type": "string", "enum": ["1"] }, "description": "Set to 1 to include transcript text in the JSON response." }
+        ],
+        "responses": {
+          "200": { "description": "Job status", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Job" } } } },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "operationId": "deleteTranscription",
+        "summary": "Delete a finished transcription and its saved audio",
+        "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+        "responses": {
+          "200": { "description": "Transcription deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "deleted": { "type": "boolean", "const": true } }, "required": ["deleted"] } } } },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/transcriptions/{id}/transcript": {
+      "get": {
+        "operationId": "getTranscriptText",
+        "summary": "Download transcript text as UTF-8 plain text",
+        "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+        "responses": {
+          "200": { "description": "Transcript text (may be partial while processing)", "headers": { "X-Transcription-ID": { "schema": { "type": "string" } }, "X-Transcription-Name": { "schema": { "type": "string" }, "description": "URL-encoded UTF-8 transcription name." } }, "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/transcriptions/{id}/audio": {
+      "get": {
+        "operationId": "getTranscriptionAudio",
+        "summary": "Stream the converted MP3 (supports byte ranges)",
+        "parameters": [{ "$ref": "#/components/parameters/JobId" }],
+        "responses": {
+          "200": { "description": "MP3 audio", "content": { "audio/mpeg": { "schema": { "type": "string", "format": "binary" } } } },
+          "206": { "description": "Partial MP3 response for seeking", "content": { "audio/mpeg": { "schema": { "type": "string", "format": "binary" } } } },
+          "404": { "$ref": "#/components/responses/Error" },
+          "416": { "description": "Invalid byte range" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "JobId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-f0-9]{32}$" } }
+    },
+    "schemas": {
+      "CreatedJob": { "type": "object", "properties": { "id": { "type": "string", "pattern": "^[a-f0-9]{32}$" }, "name": { "type": "string" } }, "required": ["id", "name"] },
+      "Config": {
+        "type": "object",
+        "properties": {
+          "provider": { "type": "string", "enum": ["openai", "assemblyai"] },
+          "api_key": { "type": "string" },
+          "assemblyai_api_key": { "type": "string" },
+          "model": { "type": "string", "enum": ["gpt-4o-transcribe-diarize", "gpt-4o-transcribe", "whisper-1", "assemblyai-universal-2"] },
+          "language": { "type": "string" },
+          "prompt": { "type": "string" }
+        },
+        "required": ["provider", "api_key", "assemblyai_api_key", "model", "language", "prompt"]
+      },
+      "ValidationResult": { "type": "object", "properties": { "valid": { "type": "boolean", "const": true }, "message": { "type": "string" } }, "required": ["valid", "message"] },
+      "Job": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string", "enum": ["processing", "queued", "complete", "error", "interrupted"] },
+          "progress": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "message": { "type": "string" },
+          "current_part": { "type": ["integer", "null"] },
+          "total_parts": { "type": ["integer", "null"] },
+          "duration": { "type": ["number", "null"] },
+          "filename": { "type": "string" },
+          "name": { "type": "string", "description": "Transcript label; not necessarily unique." },
+          "file_size": { "type": "integer" },
+          "model": { "type": "string" },
+          "language": { "type": "string" },
+          "created": { "type": "number" },
+          "updated": { "type": "number" },
+          "audio_available": { "type": "boolean" },
+          "transcript": { "type": "string", "description": "Included only when detail=1 is used." }
+        },
+        "required": ["id", "name", "status", "progress", "message", "filename", "file_size", "model", "audio_available"]
+      },
+      "Error": { "type": "object", "properties": { "error": { "type": "string" } }, "required": ["error"] }
+    },
+    "responses": {
+      "Error": { "description": "Request error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    }
+  }
+}

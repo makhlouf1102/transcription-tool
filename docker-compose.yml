@@ -1,0 +1,40 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+    volumes:
+      - transcription_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/jobs || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-8766}:80"
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      APP_PORT: "${APP_PORT:-8766}"
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    restart: unless-stopped
+
+volumes:
+  transcription_data:

@@ -1,0 +1,12 @@
+.git/
+.agents/
+.aws/
+.codex/
+.impeccable/
+data/
+node_modules/
+__pycache__/
+*.sqlite3
+*.db
+clearword
+clearword.exe

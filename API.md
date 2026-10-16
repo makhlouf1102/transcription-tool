@@ -73,3 +73,15 @@ curl -X DELETE http://127.0.0.1:8766/api/v1/transcriptions/0123456789abcdef01234
 - Errors are JSON objects with an `error` field, except successful transcript downloads, which are `text/plain`.
 
 Legacy `/api/jobs` routes remain available alongside `/api/v1/transcriptions`.
+
+## Translate text locally
+
+`POST /api/translate` sends transcript text to the local translation engine used by the app. It does not call the transcription provider.
+
+```sh
+curl -X POST http://127.0.0.1:8766/api/translate \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Hello","source":"en","target":"fr"}'
+```
+
+Use `auto` as the source language for detection. The response contains `translated_text`.

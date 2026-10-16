@@ -204,3 +204,13 @@ body{background:var(--paper);color:var(--ink);font-size:14px}
   .setup-button{width:100%}
 }
 .cost-link{color:#315e43;text-decoration:underline;text-underline-offset:2px;white-space:nowrap}
+.translation-panel{margin-top:19px;padding-top:16px;border-top:1px solid var(--line)}
+.translation-heading{display:flex;justify-content:space-between;gap:14px}
+.translation-heading p{margin:4px 0 0;color:var(--muted);font-size:11px}
+.translation-support{margin-top:10px;color:#7b623b;font-size:11px;line-height:1.5}
+.translation-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;align-items:end;gap:12px;margin-top:13px}
+.translate-button{height:38px;padding:0 15px;border-radius:6px;font-size:12px}
+.translation-result{margin-top:18px;padding-top:15px;border-top:1px solid var(--line)}
+.translation-result .result-heading h3{margin:0;font:650 13px/1.35 var(--sans)}
+.translation-result .transcript{max-height:60vh}
+@media(max-width:620px){.translation-controls{grid-template-columns:1fr 1fr;gap:10px}.translate-button{grid-column:1/-1;width:100%}.translation-result .result-heading{align-items:flex-start;flex-direction:column}.translation-result .result-actions{width:100%}}

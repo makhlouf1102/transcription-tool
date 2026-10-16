@@ -42,6 +42,7 @@ const (
 	assemblyUpload  = "https://api.assemblyai.com/v2/upload"
 	assemblyAPI     = "https://api.assemblyai.com/v2/transcript"
 	maxSettingsBody = 16 << 10
+	maxTranslationBody = 8 << 20
 )
 
 var (
@@ -55,6 +56,7 @@ var (
 	wordRE      = regexp.MustCompile(`\S+`)
 	cleanWordRE = regexp.MustCompile(`[^\pL\pN_']`)
 	silenceRE   = regexp.MustCompile(`silence_(start|end):\s*([0-9.]+)`)
+	languageCodeRE = regexp.MustCompile(`^[a-zA-Z-]{2,12}$`)
 )
 
 type config struct {
@@ -202,6 +204,7 @@ func routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/config", configHandler)
 	mux.HandleFunc("/api/config/validate", validateAPIKeyHandler)
+	mux.HandleFunc("/api/translate", translateHandler)
 	mux.HandleFunc("/api/jobs", jobsHandler)
 	mux.HandleFunc("/api/jobs/", jobHandler)
 	mux.HandleFunc("/api/v1/transcriptions", v1CollectionHandler)
@@ -400,6 +403,104 @@ func validateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("%s could not verify the key right now (HTTP %d). Try again.", providerName, response.StatusCode))
 	}
 }
+
+type translateRequest struct {
+	Text   string `json:"text"`
+	Source string `json:"source"`
+	Target string `json:"target"`
+}
+
+func translateHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed.")
+		return
+	}
+	defer r.Body.Close()
+	r.Body = http.MaxBytesReader(w, r.Body, maxTranslationBody)
+	var request translateRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid translation request.")
+		return
+	}
+	request.Text = strings.TrimSpace(request.Text)
+	request.Source = strings.TrimSpace(request.Source)
+	request.Target = strings.TrimSpace(request.Target)
+	if request.Text == "" || request.Source == "" || request.Target == "" {
+		writeError(w, http.StatusBadRequest, "Provide transcript text and both languages.")
+		return
+	}
+	if !languageCodeRE.MatchString(request.Source) || !languageCodeRE.MatchString(request.Target) || request.Source == request.Target {
+		writeError(w, http.StatusBadRequest, "Choose two different supported languages.")
+		return
+	}
+	endpoint := strings.TrimRight(strings.TrimSpace(os.Getenv("LIBRETRANSLATE_URL")), "/")
+	if endpoint == "" {
+		endpoint = "http://127.0.0.1:5001"
+	}
+	endpoint += "/translate"
+	client := &http.Client{Timeout: 10 * time.Minute}
+	chunks := splitTranslationText(request.Text, 4500)
+	translated := make([]string, 0, len(chunks))
+	for _, chunk := range chunks {
+		form := url.Values{"q": {chunk}, "source": {request.Source}, "target": {request.Target}, "format": {"text"}}
+		outbound, err := http.NewRequestWithContext(r.Context(), http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "Could not connect to the local translation engine.")
+			return
+		}
+		outbound.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		response, err := client.Do(outbound)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "Could not reach the local translation engine. Restart Clearword and try again.")
+			return
+		}
+		var result struct {
+			TranslatedText string `json:"translatedText"`
+		}
+		decodeErr := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&result)
+		_ = response.Body.Close()
+		if response.StatusCode < 200 || response.StatusCode >= 300 || decodeErr != nil || result.TranslatedText == "" {
+			writeError(w, http.StatusBadGateway, fmt.Sprintf("The local engine could not translate this text (HTTP %d). Check that the selected languages are supported.", response.StatusCode))
+			return
+		}
+		translated = append(translated, result.TranslatedText)
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"translated_text": strings.Join(translated, "\n\n")})
+}
+
+func splitTranslationText(text string, limit int) []string {
+	runes := []rune(text)
+	var chunks []string
+	for len(runes) > limit {
+		cut := limit
+		for cut > limit*3/4 && !isTranslationBoundary(runes[cut]) {
+			cut--
+		}
+		if cut <= limit*3/4 {
+			cut = limit
+			for cut > 0 && !isTranslationBoundary(runes[cut]) {
+				cut--
+			}
+		}
+		if cut == 0 {
+			cut = limit
+		}
+		if chunk := strings.TrimSpace(string(runes[:cut])); chunk != "" {
+			chunks = append(chunks, chunk)
+		}
+		runes = runes[cut:]
+		for len(runes) > 0 && isTranslationBoundary(runes[0]) {
+			runes = runes[1:]
+		}
+	}
+	if chunk := strings.TrimSpace(string(runes)); chunk != "" {
+		chunks = append(chunks, chunk)
+	}
+	return chunks
+}
+
+func isTranslationBoundary(r rune) bool { return r == ' ' || r == '\n' || r == '\r' || r == '\t' }
 
 func loadConfig() (config, error) {
 	c := defaultConfig()

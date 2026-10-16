@@ -6,14 +6,33 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: "8080"
+      LIBRETRANSLATE_URL: http://libretranslate:5000
     volumes:
       - transcription_data:/app/data
+    depends_on:
+      libretranslate:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/jobs || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 5
+      start_period: 10s
+
+  libretranslate:
+    image: libretranslate/libretranslate:latest
+    command: ["--disable-web-ui", "--load-only", "en,es,fr,de,it,pt,ja,zh,ko,ar,hi,ru,nl,sv"]
+    ports:
+      - "127.0.0.1:5001:5000"
+    volumes:
+      - libretranslate_models:/home/libretranslate/.local
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "./venv/bin/python scripts/healthcheck.py"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
       start_period: 10s
 
   frontend:
@@ -38,3 +57,4 @@ services:
 
 volumes:
   transcription_data:
+  libretranslate_models:

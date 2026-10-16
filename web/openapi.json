@@ -42,6 +42,18 @@
         }
       }
     },
+    "/api/translate": {
+      "post": {
+        "operationId": "translateTranscriptLocally",
+        "summary": "Translate transcript text through Clearword's local translation engine",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TranslateRequest" } } } },
+        "responses": {
+          "200": { "description": "Translated transcript", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TranslateResult" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "502": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/transcriptions": {
       "post": {
         "operationId": "createTranscription",
@@ -129,6 +141,16 @@
     },
     "schemas": {
       "CreatedJob": { "type": "object", "properties": { "id": { "type": "string", "pattern": "^[a-f0-9]{32}$" }, "name": { "type": "string" } }, "required": ["id", "name"] },
+      "TranslateRequest": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "minLength": 1, "maxLength": 8388608 },
+          "source": { "type": "string", "description": "Source language code, or auto." },
+          "target": { "type": "string", "description": "Target language code." }
+        },
+        "required": ["text", "source", "target"]
+      },
+      "TranslateResult": { "type": "object", "properties": { "translated_text": { "type": "string" } }, "required": ["translated_text"] },
       "Config": {
         "type": "object",
         "properties": {

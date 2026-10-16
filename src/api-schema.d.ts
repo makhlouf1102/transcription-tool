@@ -39,6 +39,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/translate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Translate transcript text through Clearword's local translation engine */
+        post: operations["translateTranscriptLocally"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/transcriptions": {
         parameters: {
             query?: never;
@@ -116,6 +133,16 @@ export interface components {
         CreatedJob: {
             id: string;
             name: string;
+        };
+        TranslateRequest: {
+            text: string;
+            /** @description Source language code, or auto. */
+            source: string;
+            /** @description Target language code. */
+            target: string;
+        };
+        TranslateResult: {
+            translated_text: string;
         };
         Config: {
             /** @enum {string} */
@@ -247,6 +274,32 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             429: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+        };
+    };
+    translateTranscriptLocally: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TranslateRequest"];
+            };
+        };
+        responses: {
+            /** @description Translated transcript */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslateResult"];
+                };
+            };
+            400: components["responses"]["Error"];
             502: components["responses"]["Error"];
         };
     };

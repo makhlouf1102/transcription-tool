@@ -29,3 +29,7 @@ just build-frontend
 ```
 
 Open [http://clearword.localhost](http://clearword.localhost) after starting the app.
+
+## Local transcription
+
+Select **Local Whisper (no API fee)** under Settings to transcribe audio on this computer without an OpenAI or AssemblyAI key. Clearword runs [whisper.cpp](https://github.com/ggml-org/whisper.cpp) locally through its Go backend. On first start, Docker downloads the multilingual Base model and keeps it in a persistent volume. The model is downloaded once; using the local provider does not send audio to a transcription API. The Base model does not provide speaker diarization.

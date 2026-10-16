@@ -33,6 +33,7 @@ const (
 	chunkSeconds    = 18 * 60
 	chunkOverlap    = 12.0
 	defaultModel    = "gpt-4o-transcribe-diarize"
+	localModel      = "whisper.cpp-base"
 	openAIEndpoint  = "https://api.openai.com/v1/audio/transcriptions"
 	openAIModelsURL = "https://api.openai.com/v1/models"
 	assemblyModelUniversal2      = "assemblyai-universal-2"
@@ -45,7 +46,7 @@ const (
 )
 
 var (
-	models      = map[string]bool{"gpt-4o-transcribe": true, "whisper-1": true, defaultModel: true, assemblyModelUniversal2: true, assemblyModelUniversal35Pro: true, assemblyModelUniversal2Diarized: true, assemblyModelUniversal35ProDiarized: true}
+	models      = map[string]bool{"gpt-4o-transcribe": true, "whisper-1": true, defaultModel: true, localModel: true, assemblyModelUniversal2: true, assemblyModelUniversal35Pro: true, assemblyModelUniversal2Diarized: true, assemblyModelUniversal35ProDiarized: true}
 	dataDir     = filepath.Join("data")
 	audioDir    = filepath.Join(dataDir, "audio")
 	database    *sql.DB
@@ -69,6 +70,9 @@ type config struct {
 func defaultConfig() config { return config{Provider: "openai", Model: defaultModel} }
 
 func providerLabel(provider string) string {
+	if provider == "local" {
+		return "Local Whisper"
+	}
 	if provider == "assemblyai" {
 		return "AssemblyAI"
 	}
@@ -81,6 +85,22 @@ func isAssemblyModel(model string) bool {
 
 func isAssemblyDiarizationModel(model string) bool {
 	return model == assemblyModelUniversal2Diarized || model == assemblyModelUniversal35ProDiarized
+}
+
+func validProviderModel(provider, model string) bool {
+	if !models[model] {
+		return false
+	}
+	switch provider {
+	case "openai":
+		return !isAssemblyModel(model) && model != localModel
+	case "assemblyai":
+		return isAssemblyModel(model)
+	case "local":
+		return model == localModel
+	default:
+		return false
+	}
 }
 
 func main() {
@@ -321,13 +341,13 @@ func configHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		c.APIKey = clip(strings.TrimSpace(c.APIKey), 500)
 		c.AssemblyAIKey = clip(strings.TrimSpace(c.AssemblyAIKey), 500)
-		if c.Provider != "openai" && c.Provider != "assemblyai" {
+		if c.Provider != "openai" && c.Provider != "assemblyai" && c.Provider != "local" {
 			writeError(w, 400, "Unsupported transcription provider.")
 			return
 		}
 		c.Language = clip(strings.TrimSpace(c.Language), 20)
 		c.Prompt = clip(strings.TrimSpace(c.Prompt), 4000)
-		if !models[c.Model] || (c.Provider == "assemblyai" && !isAssemblyModel(c.Model)) || (c.Provider == "openai" && isAssemblyModel(c.Model)) {
+		if !validProviderModel(c.Provider, c.Model) {
 			writeError(w, 400, "Unsupported transcription model.")
 			return
 		}
@@ -357,6 +377,10 @@ func validateAPIKeyHandler(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimSpace(settings.APIKey)
 	if settings.Provider == "assemblyai" {
 		key = strings.TrimSpace(settings.AssemblyAIKey)
+	}
+	if settings.Provider == "local" {
+		writeJSON(w, http.StatusOK, map[string]any{"valid": true, "message": "Local Whisper does not require an API key."})
+		return
 	}
 	if key == "" {
 		writeError(w, http.StatusBadRequest, "Add an API key in Settings before validating it.")
@@ -508,8 +532,10 @@ func createJob(w http.ResponseWriter, r *http.Request) {
 	key := c.APIKey
 	if c.Provider == "assemblyai" {
 		key = c.AssemblyAIKey
+	} else if c.Provider == "local" {
+		key = ""
 	}
-	if key == "" {
+	if key == "" && c.Provider != "local" {
 		writeError(w, 400, "Add your "+providerLabel(c.Provider)+" API key first.")
 		return
 	}
@@ -517,7 +543,7 @@ func createJob(w http.ResponseWriter, r *http.Request) {
 	if model == "" {
 		model = c.Model
 	}
-	if !models[model] || (c.Provider == "assemblyai" && !isAssemblyModel(model)) || (c.Provider == "openai" && isAssemblyModel(model)) {
+	if !validProviderModel(c.Provider, model) {
 		writeError(w, 400, "Unsupported transcription model.")
 		return
 	}
@@ -948,6 +974,8 @@ func transcribeJob(id, source, work, key, provider, model, language, prompt stri
 		var err error
 		if provider == "assemblyai" {
 			response, err = assemblyAITranscribe(chunk.Path, key, model, language)
+		} else if provider == "local" {
+			response, err = localWhisperTranscribe(chunk.Path, language, prompt)
 		} else {
 			response, err = apiTranscribe(chunk.Path, fmt.Sprintf("part-%03d.mp3", i+1), key, model, language, prompt)
 		}
@@ -1188,6 +1216,77 @@ func apiTranscribe(path, filename, key, model, language, prompt string) (map[str
 	}
 	if err := json.Unmarshal(payload, &result); err != nil {
 		return nil, err
+	}
+	return result, nil
+}
+
+func localWhisperTranscribe(path, language, prompt string) (map[string]any, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if language == "" {
+		language = "auto"
+	}
+	for name, value := range map[string]string{"response_format": "json", "language": language, "prompt": prompt} {
+		if value != "" {
+			if err := writer.WriteField(name, value); err != nil {
+				return nil, fmt.Errorf("Could not prepare local transcription: %w", err)
+			}
+		}
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("Could not open the audio chunk: %w", err)
+	}
+	part, err := writer.CreateFormFile("file", filepath.Base(path))
+	if err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("Could not prepare local transcription: %w", err)
+	}
+	_, copyErr := io.Copy(part, file)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return nil, fmt.Errorf("Could not read the audio chunk: %w", copyErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("Could not close the audio chunk: %w", closeErr)
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("Could not finish local transcription request: %w", err)
+	}
+	endpoint := strings.TrimRight(strings.TrimSpace(os.Getenv("WHISPER_URL")), "/")
+	if endpoint == "" {
+		endpoint = "http://127.0.0.1:5052"
+	}
+	request, err := http.NewRequest(http.MethodPost, endpoint+"/inference", &body)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response, err := (&http.Client{Timeout: 30 * time.Minute}).Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("Could not reach local Whisper. Restart Clearword and try again: %v", err)
+	}
+	defer response.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	if err != nil {
+		return nil, fmt.Errorf("Could not read local Whisper's response: %w", err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		var detail struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(payload, &detail)
+		if detail.Error != "" {
+			return nil, fmt.Errorf("Local Whisper failed: %s", detail.Error)
+		}
+		return nil, fmt.Errorf("Local Whisper returned HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(payload)))
+	}
+	var result map[string]any
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return nil, fmt.Errorf("Could not parse local Whisper's response: %w", err)
+	}
+	if text, _ := result["text"].(string); strings.TrimSpace(text) == "" {
+		return nil, errors.New("Local Whisper did not detect any speech in this audio chunk.")
 	}
 	return result, nil
 }

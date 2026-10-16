@@ -6,14 +6,34 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: "8080"
+      WHISPER_URL: http://whisper:8080
     volumes:
       - transcription_data:/app/data
+    depends_on:
+      whisper:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/jobs || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 5
+      start_period: 10s
+
+  whisper:
+    image: ghcr.io/ggml-org/whisper.cpp:main
+    entrypoint: ["bash", "-c"]
+    command: ["if [ ! -s /models/ggml-base.bin ]; then ./models/download-ggml-model.sh base /models; fi; exec whisper-server --host 0.0.0.0 --port 8080 --model /models/ggml-base.bin --no-gpu --no-timestamps --convert"]
+    ports:
+      - "127.0.0.1:5052:8080"
+    volumes:
+      - whisper_models:/models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
       start_period: 10s
 
   frontend:
@@ -38,3 +58,4 @@ services:
 
 volumes:
   transcription_data:
+  whisper_models:

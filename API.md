@@ -1,6 +1,6 @@
 # Local transcription API
 
-The API lets local scripts and agents submit media, poll progress, and retrieve transcripts. It is available at `http://127.0.0.1:8766` while the transcription app is running. The caller must run on the same machine as the app because the server listens on loopback only. The app uses the selected provider's key and default settings saved in its SQLite database; callers do not send or receive API keys.
+The API lets local scripts and agents submit media, poll progress, and retrieve transcripts. It is available at `http://127.0.0.1:8766` while the transcription app is running. The caller must run on the same machine as the app because the server listens on loopback only. The app uses the transcription provider and settings selected in its UI. Local Whisper does not need an API key.
 
 An OpenAPI 3.1 description is available at [`/openapi.json`](http://127.0.0.1:8766/openapi.json) when the app is running.
 
@@ -24,7 +24,7 @@ Response (`202 Accepted`):
 
 Optional headers:
 
-- `X-Model`: OpenAI `gpt-4o-transcribe-diarize`, `gpt-4o-transcribe`, or `whisper-1`; AssemblyAI `assemblyai-universal-3-5-pro`, `assemblyai-universal-2`, `assemblyai-universal-3-5-pro-diarize`, or `assemblyai-universal-2-diarize`. The model must belong to the currently selected provider in Settings.
+- `X-Model`: OpenAI `gpt-4o-transcribe-diarize`, `gpt-4o-transcribe`, or `whisper-1`; AssemblyAI `assemblyai-universal-3-5-pro`, `assemblyai-universal-2`, `assemblyai-universal-3-5-pro-diarize`, or `assemblyai-universal-2-diarize`; Local Whisper `whisper.cpp-base`. The model must belong to the currently selected provider in Settings.
 - `X-Name`: transcript label (up to 200 characters); defaults to the filename stem
 - `X-Language`: language code such as `en` or `fr`
 - `X-Prompt`: vocabulary or context hint (up to 4,000 characters)
@@ -68,7 +68,7 @@ curl -X DELETE http://127.0.0.1:8766/api/v1/transcriptions/0123456789abcdef01234
 ## Limits and errors
 
 - Uploads are limited to 20 GB.
-- The saved API key must be configured in the app before submitting jobs.
+- OpenAI and AssemblyAI require a saved API key. Local Whisper runs on the computer and requires no API key.
 - Transcription runs in a background worker; callers should poll instead of holding the upload request open for the full transcription.
 - Errors are JSON objects with an `error` field, except successful transcript downloads, which are `text/plain`.
 

@@ -10,6 +10,7 @@ type Config = components['schemas']['Config'];
 type Job = components['schemas']['Job'];
 
 const DEFAULT_MODEL = 'gpt-4o-transcribe-diarize';
+const LOCAL_MODEL = 'whisper.cpp-base';
 const ASSEMBLY_MODEL = 'assemblyai-universal-2';
 const ASSEMBLY_PRO_MODEL = 'assemblyai-universal-3-5-pro';
 const ASSEMBLY_DIARIZED_MODEL = 'assemblyai-universal-2-diarize';
@@ -28,6 +29,7 @@ const MODELS = [
   ['gpt-4o-transcribe', 'GPT-4o · Highest accuracy, no labels'],
   ['whisper-1', 'Whisper · Classic'],
 ];
+const LOCAL_MODELS = [[LOCAL_MODEL, 'Whisper.cpp · Base']];
 const LANGUAGES = [
   ['auto', 'Auto-detect'], ['en', 'English'], ['fr', 'French'], ['es', 'Spanish'], ['de', 'German'],
   ['it', 'Italian'], ['pt', 'Portuguese'], ['ja', 'Japanese'], ['zh', 'Chinese'], ['ko', 'Korean'],
@@ -83,6 +85,7 @@ function jobErrorCopy(job) {
 }
 
 function modelLabel(model) {
+  if (model === LOCAL_MODEL) return 'Whisper.cpp · Base (local)';
   if (model === ASSEMBLY_PRO_DIARIZED_MODEL) return 'AssemblyAI · Universal-3.5 Pro with speaker labels';
   if (model === ASSEMBLY_DIARIZED_MODEL) return 'AssemblyAI · Universal-2 with speaker labels';
   if (model === ASSEMBLY_PRO_MODEL) return 'AssemblyAI · Universal-3.5 Pro';
@@ -91,6 +94,7 @@ function modelLabel(model) {
 }
 
 function modelForProvider(provider, model) {
+  if (provider === 'local') return LOCAL_MODELS.some(([modelId]) => modelId === model) ? model : LOCAL_MODEL;
   if (provider === 'assemblyai') return ASSEMBLYAI_MODELS.some(([modelId]) => modelId === model) ? model : ASSEMBLY_MODEL;
   return ASSEMBLYAI_MODELS.some(([modelId]) => modelId === model) || !MODELS.some(([modelId]) => modelId === model) ? DEFAULT_MODEL : model;
 }
@@ -154,9 +158,9 @@ function App() {
   const selectedJob = jobs.find((job) => job.id === selectedJobId) || null;
   const orderedJobs = useMemo(() => [...jobs].sort((a, b) => (b.created || 0) - (a.created || 0)), [jobs]);
   const isDiarize = settings.model === DEFAULT_MODEL;
-  const activeAPIKey = settings.provider === 'assemblyai' ? settings.assemblyai_api_key : settings.api_key;
-  const availableModels = settings.provider === 'assemblyai' ? ASSEMBLYAI_MODELS : MODELS;
-  const readyToSubmit = settingsReady && Boolean(file) && Boolean(activeAPIKey.trim()) && !uploading && !validatingKey && !retryingJobId;
+  const activeAPIKey = settings.provider === 'assemblyai' ? settings.assemblyai_api_key : settings.provider === 'local' ? '' : settings.api_key;
+  const availableModels = settings.provider === 'local' ? LOCAL_MODELS : settings.provider === 'assemblyai' ? ASSEMBLYAI_MODELS : MODELS;
+  const readyToSubmit = settingsReady && Boolean(file) && (settings.provider === 'local' || Boolean(activeAPIKey.trim())) && !uploading && !validatingKey && !retryingJobId;
 
   const updateJob = useCallback((incoming) => {
     setJobs((current) => {
@@ -342,6 +346,10 @@ function App() {
   };
 
   const validateSavedAPIKey = async () => {
+    if (settings.provider === 'local') {
+      setKeyCheck({ status: 'valid', message: 'Local Whisper does not need an API key.' });
+      return true;
+    }
     if (!activeAPIKey.trim()) {
       const cause = keyValidationError('Add an API key in Settings before validating it.', 'invalid');
       setKeyCheck({ status: cause.keyStatus, message: cause.message });
@@ -407,7 +415,7 @@ function App() {
 
   const submitTranscription = async (event) => {
     event.preventDefault();
-    if (!file || !activeAPIKey.trim() || uploading || validatingKey || retryingJobId) return;
+    if (!file || (settings.provider !== 'local' && !activeAPIKey.trim()) || uploading || validatingKey || retryingJobId) return;
     const currentFile = file;
     const currentSettings = settings;
     const transcriptionName = fileName.trim() || baseName(currentFile.name) || currentFile.name;
@@ -416,7 +424,7 @@ function App() {
     setError('');
     try {
       await saveCurrentSettings();
-      await validateSavedAPIKey();
+      if (currentSettings.provider !== 'local') await validateSavedAPIKey();
       await startTranscription({
         audioFile: currentFile,
         transcriptionName,
@@ -446,7 +454,7 @@ function App() {
     setGlobalError('');
     try {
       await saveCurrentSettings();
-      await validateSavedAPIKey();
+      if (settings.provider !== 'local') await validateSavedAPIKey();
       const blob = await apiData(api.GET('/api/v1/transcriptions/{id}/audio', {
         params: { path: { id: job.id } }, parseAs: 'blob', cache: 'no-store',
       }), 'Could not load the saved audio. Upload the original file to try again.');
@@ -509,6 +517,9 @@ function App() {
 
   const costInfo = useMemo(() => {
     if (!file) return null;
+    if (settings.provider === 'local') {
+      return { title: 'Local transcription', amount: 'No API charge', detail: 'Whisper.cpp Base · runs on this computer · downloaded once on first start.' };
+    }
     if (settings.provider === 'assemblyai') {
       const rate = ASSEMBLYAI_MODEL_COST_PER_HOUR[settings.model];
       if (rate == null) return { title: 'Pricing details', amount: '—', detail: `No published rate for ${modelLabel(settings.model)}.` };
@@ -580,7 +591,7 @@ function App() {
             </article>
           )) : <div className="jobs-empty">No transcriptions yet.</div>}
         </div>
-        <div className="rail-bottom"><div className="rail-note">Your API key is stored locally.<br />Audio is sent to {settings.provider === 'assemblyai' ? 'AssemblyAI' : 'OpenAI'}.</div></div>
+        <div className="rail-bottom"><div className="rail-note">{settings.provider === 'local' ? <>Transcription runs on this computer.<br />No provider API key is needed.</> : <>Your API key is stored locally.<br />Audio is sent to {settings.provider === 'assemblyai' ? 'AssemblyAI' : 'OpenAI'}.</>}</div></div>
       </aside>
 
       <main className="main">
@@ -594,7 +605,7 @@ function App() {
             <section id="new-view" className="new-view">
               <section className="intro"><Title className="intro-title" order={1}>New transcription</Title><Text component="p">Upload an audio or video file to get started.</Text></section>
               <Paper className="workspace-card" component="form" withBorder radius="md" onSubmit={submitTranscription}>
-                {!activeAPIKey.trim() && settingsReady && <div className="setup-callout" role="note"><div className="setup-copy"><strong>Connect a provider to start</strong><span>Your key is stored locally. Audio is sent to {settings.provider === 'assemblyai' ? 'AssemblyAI' : 'OpenAI'} for transcription.</span></div><Button className="setup-button" type="button" onClick={openSettings} variant="default" color="green">Add API key</Button></div>}
+                {settings.provider !== 'local' && !activeAPIKey.trim() && settingsReady && <div className="setup-callout" role="note"><div className="setup-copy"><strong>Connect a provider to start</strong><span>Your key is stored locally. Audio is sent to {settings.provider === 'assemblyai' ? 'AssemblyAI' : 'OpenAI'} for transcription.</span></div><Button className="setup-button" type="button" onClick={openSettings} variant="default" color="green">Add API key</Button></div>}
                 <div className="step-head"><div className="step-title">Audio file</div></div>
                 <label className={`dropzone${dragging ? ' drag' : ''}${file ? ' hidden' : ''}`} htmlFor="file-input" onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={(event) => { event.preventDefault(); setDragging(false); }} onDrop={(event) => { event.preventDefault(); setDragging(false); chooseFile(event.dataTransfer.files[0]); }}>
                   <input ref={fileInput} id="file-input" type="file" accept="video/*,audio/*,.mp4,.mov,.mkv,.webm,.mp3,.wav,.m4a,.aac,.flac,.ogg" onChange={(event) => chooseFile(event.target.files?.[0])} />
@@ -606,7 +617,7 @@ function App() {
                 </>}
                 <div className="step-head options-head"><div className="step-title">Settings</div><Button className="text-button" type="button" onClick={() => setAdvancedOpen((open) => !open)} variant="subtle" size="xs">{advancedOpen ? 'Hide context' : 'Add context'}</Button></div>
                 <div className="controls">
-                  <Select className="field" label="Model" description={settings.provider === 'assemblyai' ? assemblyModelDescription(settings.model) : 'Speaker labels separate voices.'} value={settings.model} onChange={(value) => updateSetting('model', value || DEFAULT_MODEL)} data={availableModels.map(([value, label]) => ({ value, label }))} disabled={uploading} size="sm" styles={{ label: { fontSize: 10 }, description: { fontSize: 10 }, input: { height: 38, fontSize: 12 } }} />
+                  <Select className="field" label="Model" description={settings.provider === 'local' ? 'Runs locally on your computer. First start downloads the model.' : settings.provider === 'assemblyai' ? assemblyModelDescription(settings.model) : 'Speaker labels separate voices.'} value={settings.model} onChange={(value) => updateSetting('model', value || DEFAULT_MODEL)} data={availableModels.map(([value, label]) => ({ value, label }))} disabled={uploading} size="sm" styles={{ label: { fontSize: 10 }, description: { fontSize: 10 }, input: { height: 38, fontSize: 12 } }} />
                   <Select className="field" label="Language" value={settings.language || 'auto'} onChange={(value) => updateSetting('language', value && value !== 'auto' ? value : '')} data={LANGUAGES.map(([value, label]) => ({ value, label }))} disabled={uploading} size="sm" styles={{ label: { fontSize: 10 }, input: { height: 38, fontSize: 12 } }} />
                 </div>
                 {advancedOpen && <div className="advanced"><Textarea className="field" label="Context and vocabulary" rows={3} value={settings.prompt} onChange={(event) => updateSetting('prompt', event.currentTarget.value)} disabled={uploading || isDiarize || settings.provider === 'assemblyai'} placeholder={settings.provider === 'assemblyai' ? 'Unavailable with AssemblyAI.' : isDiarize ? 'Unavailable with speaker diarization.' : 'Names, acronyms, or specialist terms'} description="Help the model recognize specific words." size="sm" styles={{ label: { fontSize: 10 }, description: { fontSize: 10 }, input: { fontSize: 12 } }} /></div>}
@@ -618,13 +629,13 @@ function App() {
             </section>
           ) : view === 'settings' ? (
             <section id="settings-view" className="settings-view">
-              <section className="intro"><Title className="intro-title" order={1}>Settings</Title><Text component="p">Choose a transcription provider and manage its API key.</Text></section>
+              <section className="intro"><Title className="intro-title" order={1}>Settings</Title><Text component="p">Choose a transcription provider. Local Whisper needs no API key.</Text></section>
               <Paper className="workspace-card settings-card" withBorder radius="md">
                 <div className="settings-section-head"><div className="step-title">Provider connection</div><div className={`config-status${configStatus === 'Saved locally' ? ' saved' : configStatus.startsWith('Settings could') ? ' save-error' : ''}`} aria-live="polite">{configStatus}</div></div>
-                <Select className="field" label="Transcription provider" value={settings.provider} onChange={(value) => updateSetting('provider', value || 'openai')} data={[{ value: 'openai', label: 'OpenAI' }, { value: 'assemblyai', label: 'AssemblyAI' }]} disabled={!settingsReady || uploading || validatingKey} size="sm" styles={{ label: { fontSize: 10 }, input: { height: 38, fontSize: 12 } }} />
-                <Text className="settings-description" component="p">Your key stays in this app’s local database and is used when you start a transcription.</Text>
-                <div className="key-wrap"><PasswordInput className="key-password" aria-label={`${settings.provider === 'assemblyai' ? 'AssemblyAI' : 'OpenAI'} API key`} value={activeAPIKey} onChange={(event) => updateSetting(settings.provider === 'assemblyai' ? 'assemblyai_api_key' : 'api_key', event.currentTarget.value)} disabled={!settingsReady || uploading || validatingKey} placeholder={settings.provider === 'assemblyai' ? '••••••••••••••••••••••••••••••••' : 'sk-••••••••••••••••••••••••••••••••'} autoComplete="off" spellCheck={false} visible={showKey} onVisibilityChange={setShowKey} visibilityToggleButtonProps={{ 'aria-label': 'Toggle API key visibility' }} size="sm" styles={{ root: { flex: 1, minWidth: 0 }, input: { fontSize: 12, height: 40 } }} /> <a href={settings.provider === 'assemblyai' ? 'https://www.assemblyai.com/dashboard/signup' : 'https://platform.openai.com/api-keys'} target="_blank" rel="noreferrer">Get an API key</a></div>
-                <div className="key-validation-row"><Text className={`key-validation ${keyCheck.status}`} role="status" aria-live="polite">{keyCheck.message || 'Validate the key before starting a transcription.'}</Text><Button className="validate-key-button" type="button" onClick={checkAPIKey} loading={validatingKey} disabled={!settingsReady || !activeAPIKey.trim() || validatingKey || uploading} variant="default" color="green" size="xs">Validate key</Button></div>
+                <Select className="field" label="Transcription provider" value={settings.provider} onChange={(value) => updateSetting('provider', value || 'openai')} data={[{ value: 'openai', label: 'OpenAI' }, { value: 'assemblyai', label: 'AssemblyAI' }, { value: 'local', label: 'Local Whisper (no API fee)' }]} disabled={!settingsReady || uploading || validatingKey} size="sm" styles={{ label: { fontSize: 10 }, input: { height: 38, fontSize: 12 } }} />
+                <Text className="settings-description" component="p">{settings.provider === 'local' ? 'Audio is transcribed on this computer with Whisper.cpp. No API key is needed; the model downloads once on first start.' : 'Your key stays in this app’s local database and is used when you start a transcription.'}</Text>
+                {settings.provider !== 'local' && <><div className="key-wrap"><PasswordInput className="key-password" aria-label={`${settings.provider === 'assemblyai' ? 'AssemblyAI' : 'OpenAI'} API key`} value={activeAPIKey} onChange={(event) => updateSetting(settings.provider === 'assemblyai' ? 'assemblyai_api_key' : 'api_key', event.currentTarget.value)} disabled={!settingsReady || uploading || validatingKey} placeholder={settings.provider === 'assemblyai' ? '••••••••••••••••••••••••••••••••' : 'sk-••••••••••••••••••••••••••••••••'} autoComplete="off" spellCheck={false} visible={showKey} onVisibilityChange={setShowKey} visibilityToggleButtonProps={{ 'aria-label': 'Toggle API key visibility' }} size="sm" styles={{ root: { flex: 1, minWidth: 0 }, input: { fontSize: 12, height: 40 } }} /> <a href={settings.provider === 'assemblyai' ? 'https://www.assemblyai.com/dashboard/signup' : 'https://platform.openai.com/api-keys'} target="_blank" rel="noreferrer">Get an API key</a></div>
+                <div className="key-validation-row"><Text className={`key-validation ${keyCheck.status}`} role="status" aria-live="polite">{keyCheck.message || 'Validate the key before starting a transcription.'}</Text><Button className="validate-key-button" type="button" onClick={checkAPIKey} loading={validatingKey} disabled={!settingsReady || !activeAPIKey.trim() || validatingKey || uploading} variant="default" color="green" size="xs">Validate key</Button></div></>}
                 {error && <Alert className="error" color="red" variant="light" role="alert">{error}</Alert>}
               </Paper>
             </section>

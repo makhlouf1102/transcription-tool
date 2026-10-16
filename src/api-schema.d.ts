@@ -31,7 +31,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Validate the selected provider API key saved in settings */
+        /** Validate the selected provider API key saved in settings; local Whisper requires no key */
         post: operations["validateApiKey"];
         delete?: never;
         options?: never;
@@ -119,11 +119,11 @@ export interface components {
         };
         Config: {
             /** @enum {string} */
-            provider: "openai" | "assemblyai";
+            provider: "openai" | "assemblyai" | "local";
             api_key: string;
             assemblyai_api_key: string;
             /** @enum {string} */
-            model: "gpt-4o-transcribe-diarize" | "gpt-4o-transcribe" | "whisper-1" | "assemblyai-universal-2" | "assemblyai-universal-3-5-pro" | "assemblyai-universal-2-diarize" | "assemblyai-universal-3-5-pro-diarize";
+            model: "gpt-4o-transcribe-diarize" | "gpt-4o-transcribe" | "whisper-1" | "assemblyai-universal-2" | "assemblyai-universal-3-5-pro" | "assemblyai-universal-2-diarize" | "assemblyai-universal-3-5-pro-diarize" | "whisper.cpp-base";
             language: string;
             prompt: string;
         };
@@ -282,7 +282,7 @@ export interface operations {
                 /** @description Transcript name. URL-encode non-ASCII characters. Defaults to the filename without its extension. */
                 "X-Name"?: string;
                 /** @description The model must belong to the provider selected in Settings. */
-                "X-Model"?: "gpt-4o-transcribe-diarize" | "gpt-4o-transcribe" | "whisper-1" | "assemblyai-universal-2" | "assemblyai-universal-3-5-pro" | "assemblyai-universal-2-diarize" | "assemblyai-universal-3-5-pro-diarize";
+                "X-Model"?: "gpt-4o-transcribe-diarize" | "gpt-4o-transcribe" | "whisper-1" | "assemblyai-universal-2" | "assemblyai-universal-3-5-pro" | "assemblyai-universal-2-diarize" | "assemblyai-universal-3-5-pro-diarize" | "whisper.cpp-base";
                 "X-Language"?: string;
                 "X-Prompt"?: string;
             };

@@ -8,8 +8,8 @@ build-frontend:
 
 # Bundle the frontend and start the local transcription server.
 run: build-frontend
-    APP_PORT="${PORT:-8766}" docker compose up -d caddy
-    go run -buildvcs=false .
+    APP_PORT="${PORT:-8766}" docker compose up -d --wait caddy whisper
+    WHISPER_URL="http://127.0.0.1:5052" go run -buildvcs=false .
 
 # Build and run the Docker Compose stack in the foreground.
 docker-up:

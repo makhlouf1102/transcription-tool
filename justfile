@@ -17,7 +17,7 @@ docker-up:
 
 # Stop the Docker Compose stack while keeping its persistent data volume.
 docker-down:
-    docker compose down
+    docker compose down --remove-orphans
 
 # Follow logs from the frontend and backend containers.
 docker-logs:

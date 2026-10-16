@@ -21,7 +21,8 @@ services:
       start_period: 10s
 
   whisper:
-    image: ghcr.io/ggml-org/whisper.cpp:main
+    image: ghcr.io/ggml-org/whisper.cpp:main-c62adfbd1ecdaea9e295c72d672992514a2d887c
+    platform: linux/amd64
     entrypoint: ["bash", "-c"]
     command: ["if [ ! -s /models/ggml-base.bin ]; then ./models/download-ggml-model.sh base /models; fi; exec whisper-server --host 0.0.0.0 --port 8080 --model /models/ggml-base.bin --no-gpu --no-timestamps --convert"]
     ports:

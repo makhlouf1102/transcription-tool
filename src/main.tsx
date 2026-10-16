@@ -145,12 +145,6 @@ function App() {
   const [error, setError] = useState('');
   const [globalError, setGlobalError] = useState('');
   const [copyLabel, setCopyLabel] = useState('Copy text');
-  const [translatedText, setTranslatedText] = useState('');
-  const [translationSource, setTranslationSource] = useState('auto');
-  const [translationTarget, setTranslationTarget] = useState('en');
-  const [translating, setTranslating] = useState(false);
-  const [translationError, setTranslationError] = useState('');
-  const [translationCopyLabel, setTranslationCopyLabel] = useState('Copy translation');
   const [durationUnavailable, setDurationUnavailable] = useState(false);
   const [historyScrollable, setHistoryScrollable] = useState(false);
   const settingsTimer = useRef(null);
@@ -298,12 +292,6 @@ function App() {
     }, 1400));
     return () => { alive = false; timers.forEach(clearInterval); };
   }, [activeJobIds, fetchJob, selectedJobId]);
-
-  useEffect(() => {
-    setTranslatedText('');
-    setTranslationError('');
-    setTranslationSource(selectedJob?.language || 'auto');
-  }, [selectedJobId]);
 
   const chooseFile = (next) => {
     if (!next) return;
@@ -570,42 +558,6 @@ function App() {
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   };
 
-  const translateTranscript = async () => {
-    if (!selectedJob?.transcript || translating || translationSource === translationTarget) return;
-    setTranslating(true);
-    setTranslationError('');
-    setTranslatedText('');
-    try {
-      const result = await apiData(api.POST('/api/translate', {
-        body: { text: selectedJob.transcript, source: translationSource, target: translationTarget },
-      }), 'Could not translate this transcript.');
-      setTranslatedText(result.translated_text);
-    } catch (cause) {
-      setTranslationError(cause.message || 'Could not translate this transcript with the local engine.');
-    } finally {
-      setTranslating(false);
-    }
-  };
-
-  const copyTranslation = async () => {
-    try {
-      await navigator.clipboard.writeText(translatedText);
-      setTranslationCopyLabel('Copied');
-      setTimeout(() => setTranslationCopyLabel('Copy translation'), 1500);
-    } catch {
-      setTranslationError('Could not copy the translation.');
-    }
-  };
-
-  const downloadTranslation = () => {
-    const blob = new Blob([translatedText], { type: 'text/plain;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${baseName(selectedJob?.name || selectedJob?.filename || 'translation') || 'translation'}-${translationTarget}.txt`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-  };
-
   return (
     <div className="shell">
       <aside className="rail" aria-label="Transcription navigation">
@@ -683,23 +635,7 @@ function App() {
               {['error', 'interrupted'].includes(selectedJob.status) && <Alert className="error job-error" color="red" variant="light" role="alert"><div className="job-error-content"><div className="job-error-copy"><strong>{selectedJobError.title}</strong>{selectedJobError.detail && <span>{selectedJobError.detail}</span>}</div>{selectedJob.audio_available ? <Button className="retry-button" type="button" onClick={() => retryTranscription(selectedJob)} loading={retryingJobId === selectedJob.id || validatingKey} disabled={!settingsReady || Boolean(retryingJobId) || validatingKey || uploading} color="green" size="xs">{retryingJobId === selectedJob.id && uploadProgress !== null ? uploadProgress >= 100 ? 'Upload sent' : `Uploading ${uploadProgress}%` : 'Try again'}</Button> : <Button className="retry-button" type="button" onClick={chooseAnotherFile} color="green" size="xs">Choose another file</Button>}</div>{retryingJobId === selectedJob.id && uploadProgress !== null && <div className="retry-progress" role="progressbar" aria-label={uploadProgress >= 100 ? 'Audio uploaded; waiting for server response' : 'Retry upload progress'} aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadProgress}><span style={{ width: `${uploadProgress}%` }} /></div>}</Alert>}
               {['processing', 'queued'].includes(selectedJob.status) && <Paper className="processing" withBorder radius="md"><div className="processing-top"><div><div className="processing-title">{selectedJob.message || 'Transcription is running…'}</div><div className="processing-sub">{selectedJob.total_parts > 1 ? `Part ${selectedJob.current_part || 1} of ${selectedJob.total_parts} · working in the background.` : 'Working in the background. You can start another transcription.'}</div></div><div className="percent">{selectedJob.progress || 0}%</div></div><Progress className="progress-track" value={selectedJob.progress || 0} size={4} radius="xl" color="green" /></Paper>}
               {!(['error', 'interrupted'].includes(selectedJob.status) && !selectedJob.audio_available) && <Paper className="audio-player-section" withBorder radius="md"><div className="audio-player-heading"><Title order={2}>Audio</Title></div>{selectedJob.audio_available ? <audio key={selectedJob.id} controls preload="metadata" src={transcriptionAudioURL(selectedJob.id)} /> : <div className="audio-unavailable">{['processing', 'queued'].includes(selectedJob.status) ? 'Preparing audio. The player will appear when it is ready.' : 'No audio was saved for this job. Start a new transcription and upload the original file to try again.'}</div>}</Paper>}
-              {selectedJob.status === 'complete' && selectedJob.transcript && <Paper className="result" withBorder radius="md">
-                <div className="result-heading"><Title order={2}>Transcript</Title><div className="result-actions"><Button className="secondary-button" type="button" onClick={copyTranscript} variant="default" size="xs">{copyLabel}</Button><Button className="secondary-button dark" type="button" onClick={downloadTranscript} color="green" size="xs">Download .txt</Button></div></div>
-                <div className="transcript">{selectedJob.transcript}</div>
-                <div className="translation-panel">
-                  <div className="translation-heading"><div><div className="step-title">Translate on this computer</div><Text component="p">Runs through Clearword’s local translation engine. Your transcript stays on this computer.</Text></div></div>
-                  <div className="translation-controls">
-                    <Select className="field" label="From" value={translationSource} onChange={(value) => { setTranslationSource(value || 'auto'); setTranslatedText(''); setTranslationError(''); }} data={LANGUAGES.map(([value, label]) => ({ value, label }))} disabled={translating} size="sm" />
-                    <Select className="field" label="To" value={translationTarget} onChange={(value) => { setTranslationTarget(value || 'en'); setTranslatedText(''); setTranslationError(''); }} data={LANGUAGES.filter(([value]) => value !== 'auto').map(([value, label]) => ({ value, label }))} disabled={translating} size="sm" />
-                    <Button className="translate-button" type="button" onClick={translateTranscript} disabled={translating || translationSource === translationTarget} loading={translating} color="green">{translating ? 'Translating locally…' : 'Translate'}</Button>
-                  </div>
-                  {translationError && <Alert className="error" color="red" variant="light" role="alert">{translationError}</Alert>}
-                  {translatedText && <div className="translation-result">
-                    <div className="result-heading"><Title order={3}>{languageLabel(translationTarget)} translation</Title><div className="result-actions"><Button className="secondary-button" type="button" onClick={copyTranslation} variant="default" size="xs">{translationCopyLabel}</Button><Button className="secondary-button dark" type="button" onClick={downloadTranslation} color="green" size="xs">Download .txt</Button></div></div>
-                    <div className="transcript">{translatedText}</div>
-                  </div>}
-                </div>
-              </Paper>}
+              {selectedJob.status === 'complete' && selectedJob.transcript && <Paper className="result" withBorder radius="md"><div className="result-heading"><Title order={2}>Transcript</Title><div className="result-actions"><Button className="secondary-button" type="button" onClick={copyTranscript} variant="default" size="xs">{copyLabel}</Button><Button className="secondary-button dark" type="button" onClick={downloadTranscript} color="green" size="xs">Download .txt</Button></div></div><div className="transcript">{selectedJob.transcript}</div></Paper>}
             </section>
           ) : <section className="job-view"><div className="jobs-empty">Choose a transcription from the sidebar, or start a new one.</div></section>}
           {globalError && <Alert className="error" color="red" variant="light" role="alert">{globalError}</Alert>}

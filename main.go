@@ -35,14 +35,17 @@ const (
 	defaultModel    = "gpt-4o-transcribe-diarize"
 	openAIEndpoint  = "https://api.openai.com/v1/audio/transcriptions"
 	openAIModelsURL = "https://api.openai.com/v1/models"
-	assemblyModel   = "assemblyai-universal-2"
+	assemblyModelUniversal2      = "assemblyai-universal-2"
+	assemblyModelUniversal35Pro = "assemblyai-universal-3-5-pro"
+	assemblyModelUniversal2Diarized = "assemblyai-universal-2-diarize"
+	assemblyModelUniversal35ProDiarized = "assemblyai-universal-3-5-pro-diarize"
 	assemblyUpload  = "https://api.assemblyai.com/v2/upload"
 	assemblyAPI     = "https://api.assemblyai.com/v2/transcript"
 	maxSettingsBody = 16 << 10
 )
 
 var (
-	models      = map[string]bool{"gpt-4o-transcribe": true, "whisper-1": true, defaultModel: true, assemblyModel: true}
+	models      = map[string]bool{"gpt-4o-transcribe": true, "whisper-1": true, defaultModel: true, assemblyModelUniversal2: true, assemblyModelUniversal35Pro: true, assemblyModelUniversal2Diarized: true, assemblyModelUniversal35ProDiarized: true}
 	dataDir     = filepath.Join("data")
 	audioDir    = filepath.Join(dataDir, "audio")
 	database    *sql.DB
@@ -70,6 +73,14 @@ func providerLabel(provider string) string {
 		return "AssemblyAI"
 	}
 	return "OpenAI"
+}
+
+func isAssemblyModel(model string) bool {
+	return model == assemblyModelUniversal2 || model == assemblyModelUniversal35Pro || model == assemblyModelUniversal2Diarized || model == assemblyModelUniversal35ProDiarized
+}
+
+func isAssemblyDiarizationModel(model string) bool {
+	return model == assemblyModelUniversal2Diarized || model == assemblyModelUniversal35ProDiarized
 }
 
 func main() {
@@ -316,7 +327,7 @@ func configHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		c.Language = clip(strings.TrimSpace(c.Language), 20)
 		c.Prompt = clip(strings.TrimSpace(c.Prompt), 4000)
-		if !models[c.Model] || (c.Provider == "assemblyai" && c.Model != assemblyModel) || (c.Provider == "openai" && c.Model == assemblyModel) {
+		if !models[c.Model] || (c.Provider == "assemblyai" && !isAssemblyModel(c.Model)) || (c.Provider == "openai" && isAssemblyModel(c.Model)) {
 			writeError(w, 400, "Unsupported transcription model.")
 			return
 		}
@@ -506,7 +517,7 @@ func createJob(w http.ResponseWriter, r *http.Request) {
 	if model == "" {
 		model = c.Model
 	}
-	if !models[model] || (c.Provider == "assemblyai" && model != assemblyModel) || (c.Provider == "openai" && model == assemblyModel) {
+	if !models[model] || (c.Provider == "assemblyai" && !isAssemblyModel(model)) || (c.Provider == "openai" && isAssemblyModel(model)) {
 		writeError(w, 400, "Unsupported transcription model.")
 		return
 	}
@@ -936,9 +947,7 @@ func transcribeJob(id, source, work, key, provider, model, language, prompt stri
 		var response map[string]any
 		var err error
 		if provider == "assemblyai" {
-			var text string
-			text, err = assemblyAITranscribe(chunk.Path, key, language)
-			response = map[string]any{"text": text}
+			response, err = assemblyAITranscribe(chunk.Path, key, model, language)
 		} else {
 			response, err = apiTranscribe(chunk.Path, fmt.Sprintf("part-%03d.mp3", i+1), key, model, language, prompt)
 		}
@@ -948,7 +957,8 @@ func transcribeJob(id, source, work, key, provider, model, language, prompt stri
 		}
 		log.Printf("transcription chunk completed id=%s part=%d/%d elapsed=%s", id, i+1, total, time.Since(chunkStarted).Round(time.Millisecond))
 		partial := ""
-		if model == defaultModel {
+		isDiarizedModel := model == defaultModel || isAssemblyDiarizationModel(model)
+		if isDiarizedModel {
 			responses = append(responses, response)
 			partial = diarizedTranscript(chunks[:i+1], responses)
 		} else {
@@ -964,7 +974,7 @@ func transcribeJob(id, source, work, key, provider, model, language, prompt stri
 		_ = updateJob(id, map[string]any{"progress": 12 + int(83*float64(i+1)/float64(total)), "transcript": partial})
 	}
 	transcript := previous
-	if model == defaultModel {
+	if model == defaultModel || isAssemblyDiarizationModel(model) {
 		hasSegments := false
 		for _, response := range responses {
 			if segs, ok := response["segments"].([]any); ok && len(segs) > 0 {
@@ -1182,22 +1192,22 @@ func apiTranscribe(path, filename, key, model, language, prompt string) (map[str
 	return result, nil
 }
 
-func assemblyAITranscribe(path, key, language string) (string, error) {
+func assemblyAITranscribe(path, key, model, language string) (map[string]any, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", fmt.Errorf("Could not open the audio chunk: %w", err)
+		return nil, fmt.Errorf("Could not open the audio chunk: %w", err)
 	}
 	defer f.Close()
 	uploadReq, err := http.NewRequest(http.MethodPost, assemblyUpload, f)
 	if err != nil {
 		f.Close()
-		return "", err
+		return nil, err
 	}
 	uploadReq.Header.Set("Authorization", key)
 	client := &http.Client{Timeout: 15 * time.Minute}
 	uploadResp, err := client.Do(uploadReq)
 	if err != nil {
-		return "", fmt.Errorf("Could not reach AssemblyAI to upload audio: %v", err)
+		return nil, fmt.Errorf("Could not reach AssemblyAI to upload audio: %v", err)
 	}
 	var uploaded struct {
 		UploadURL string `json:"upload_url"`
@@ -1206,28 +1216,35 @@ func assemblyAITranscribe(path, key, language string) (string, error) {
 	err = json.NewDecoder(io.LimitReader(uploadResp.Body, 1<<20)).Decode(&uploaded)
 	uploadResp.Body.Close()
 	if err != nil {
-		return "", fmt.Errorf("Could not read the AssemblyAI upload response: %w", err)
+		return nil, fmt.Errorf("Could not read the AssemblyAI upload response: %w", err)
 	}
 	if uploadResp.StatusCode < 200 || uploadResp.StatusCode >= 300 || uploaded.UploadURL == "" {
 		if uploaded.Error == "" {
 			uploaded.Error = fmt.Sprintf("HTTP %d", uploadResp.StatusCode)
 		}
-		return "", fmt.Errorf("AssemblyAI audio upload failed: %s", uploaded.Error)
+		return nil, fmt.Errorf("AssemblyAI audio upload failed: %s", uploaded.Error)
 	}
-	requestData := map[string]string{"audio_url": uploaded.UploadURL, "speech_model": "universal-2"}
+	speechModel := "universal-2"
+	if model == assemblyModelUniversal35Pro || model == assemblyModelUniversal35ProDiarized {
+		speechModel = "universal-3-5-pro"
+	}
+	requestData := map[string]any{"audio_url": uploaded.UploadURL, "speech_models": []string{speechModel}}
+	if isAssemblyDiarizationModel(model) {
+		requestData["speaker_labels"] = true
+	}
 	if code := assemblyLanguageCode(language); code != "" {
 		requestData["language_code"] = code
 	}
 	body, _ := json.Marshal(requestData)
 	transcriptReq, err := http.NewRequest(http.MethodPost, assemblyAPI, bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	transcriptReq.Header.Set("Authorization", key)
 	transcriptReq.Header.Set("Content-Type", "application/json")
 	transcriptResp, err := (&http.Client{Timeout: 2 * time.Minute}).Do(transcriptReq)
 	if err != nil {
-		return "", fmt.Errorf("Could not submit audio to AssemblyAI: %v", err)
+		return nil, fmt.Errorf("Could not submit audio to AssemblyAI: %v", err)
 	}
 	var job struct {
 		ID    string `json:"id"`
@@ -1236,13 +1253,13 @@ func assemblyAITranscribe(path, key, language string) (string, error) {
 	err = json.NewDecoder(io.LimitReader(transcriptResp.Body, 1<<20)).Decode(&job)
 	transcriptResp.Body.Close()
 	if err != nil {
-		return "", fmt.Errorf("Could not read the AssemblyAI transcription response: %w", err)
+		return nil, fmt.Errorf("Could not read the AssemblyAI transcription response: %w", err)
 	}
 	if transcriptResp.StatusCode < 200 || transcriptResp.StatusCode >= 300 || job.ID == "" {
 		if job.Error == "" {
 			job.Error = fmt.Sprintf("HTTP %d", transcriptResp.StatusCode)
 		}
-		return "", fmt.Errorf("AssemblyAI could not start transcription: %s", job.Error)
+		return nil, fmt.Errorf("AssemblyAI could not start transcription: %s", job.Error)
 	}
 	pollClient := &http.Client{Timeout: 30 * time.Second}
 	deadline := time.Now().Add(30 * time.Minute)
@@ -1250,34 +1267,53 @@ func assemblyAITranscribe(path, key, language string) (string, error) {
 		time.Sleep(2 * time.Second)
 		pollReq, err := http.NewRequest(http.MethodGet, assemblyAPI+"/"+url.PathEscape(job.ID), nil)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		pollReq.Header.Set("Authorization", key)
 		pollResp, err := pollClient.Do(pollReq)
 		if err != nil {
-			return "", fmt.Errorf("Could not check AssemblyAI transcription status: %v", err)
+			return nil, fmt.Errorf("Could not check AssemblyAI transcription status: %v", err)
 		}
 		var result struct {
-			Status string `json:"status"`
-			Text   string `json:"text"`
-			Error  string `json:"error"`
+			Status     string `json:"status"`
+			Text       string `json:"text"`
+			Error      string `json:"error"`
+			Utterances []struct {
+				Start   float64 `json:"start"`
+				End     float64 `json:"end"`
+				Text    string  `json:"text"`
+				Speaker string  `json:"speaker"`
+			} `json:"utterances"`
 		}
 		err = json.NewDecoder(io.LimitReader(pollResp.Body, 4<<20)).Decode(&result)
 		pollResp.Body.Close()
 		if err != nil {
-			return "", fmt.Errorf("Could not read AssemblyAI transcription status: %w", err)
+			return nil, fmt.Errorf("Could not read AssemblyAI transcription status: %w", err)
 		}
 		if pollResp.StatusCode < 200 || pollResp.StatusCode >= 300 {
-			return "", fmt.Errorf("AssemblyAI status check returned HTTP %d", pollResp.StatusCode)
+			return nil, fmt.Errorf("AssemblyAI status check returned HTTP %d", pollResp.StatusCode)
 		}
 		switch result.Status {
 		case "completed":
-			return result.Text, nil
+			response := map[string]any{"text": result.Text}
+			if isAssemblyDiarizationModel(model) {
+				segments := make([]any, 0, len(result.Utterances))
+				for _, utterance := range result.Utterances {
+					segments = append(segments, map[string]any{
+						"start": utterance.Start / 1000,
+						"end": utterance.End / 1000,
+						"text": utterance.Text,
+						"speaker": utterance.Speaker,
+					})
+				}
+				response["segments"] = segments
+			}
+			return response, nil
 		case "error":
-			return "", fmt.Errorf("AssemblyAI transcription failed: %s", result.Error)
+			return nil, fmt.Errorf("AssemblyAI transcription failed: %s", result.Error)
 		}
 	}
-	return "", errors.New("AssemblyAI transcription timed out after 30 minutes.")
+	return nil, errors.New("AssemblyAI transcription timed out after 30 minutes.")
 }
 
 func assemblyLanguageCode(language string) string {

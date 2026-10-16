@@ -123,7 +123,7 @@ export interface components {
             api_key: string;
             assemblyai_api_key: string;
             /** @enum {string} */
-            model: "gpt-4o-transcribe-diarize" | "gpt-4o-transcribe" | "whisper-1" | "assemblyai-universal-2";
+            model: "gpt-4o-transcribe-diarize" | "gpt-4o-transcribe" | "whisper-1" | "assemblyai-universal-2" | "assemblyai-universal-3-5-pro" | "assemblyai-universal-2-diarize" | "assemblyai-universal-3-5-pro-diarize";
             language: string;
             prompt: string;
         };
@@ -282,7 +282,7 @@ export interface operations {
                 /** @description Transcript name. URL-encode non-ASCII characters. Defaults to the filename without its extension. */
                 "X-Name"?: string;
                 /** @description The model must belong to the provider selected in Settings. */
-                "X-Model"?: "gpt-4o-transcribe-diarize" | "gpt-4o-transcribe" | "whisper-1" | "assemblyai-universal-2";
+                "X-Model"?: "gpt-4o-transcribe-diarize" | "gpt-4o-transcribe" | "whisper-1" | "assemblyai-universal-2" | "assemblyai-universal-3-5-pro" | "assemblyai-universal-2-diarize" | "assemblyai-universal-3-5-pro-diarize";
                 "X-Language"?: string;
                 "X-Prompt"?: string;
             };

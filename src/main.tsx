@@ -11,7 +11,18 @@ type Job = components['schemas']['Job'];
 
 const DEFAULT_MODEL = 'gpt-4o-transcribe-diarize';
 const ASSEMBLY_MODEL = 'assemblyai-universal-2';
+const ASSEMBLY_PRO_MODEL = 'assemblyai-universal-3-5-pro';
+const ASSEMBLY_DIARIZED_MODEL = 'assemblyai-universal-2-diarize';
+const ASSEMBLY_PRO_DIARIZED_MODEL = 'assemblyai-universal-3-5-pro-diarize';
 const MODEL_COST_PER_MINUTE = { 'gpt-4o-transcribe': 0.006, 'whisper-1': 0.006, [DEFAULT_MODEL]: null };
+const ASSEMBLYAI_MODEL_COST_PER_HOUR = { [ASSEMBLY_MODEL]: 0.15, [ASSEMBLY_PRO_MODEL]: 0.21, [ASSEMBLY_DIARIZED_MODEL]: 0.17, [ASSEMBLY_PRO_DIARIZED_MODEL]: 0.23 };
+const ASSEMBLYAI_PRICING_URL = 'https://www.assemblyai.com/pricing/';
+const ASSEMBLYAI_MODELS = [
+  [ASSEMBLY_PRO_MODEL, 'Universal-3.5 Pro · $0.21/hr'],
+  [ASSEMBLY_PRO_DIARIZED_MODEL, 'Universal-3.5 Pro + speaker labels · $0.23/hr'],
+  [ASSEMBLY_MODEL, 'Universal-2 · $0.15/hr'],
+  [ASSEMBLY_DIARIZED_MODEL, 'Universal-2 + speaker labels · $0.17/hr'],
+];
 const MODELS = [
   [DEFAULT_MODEL, 'GPT-4o · Speaker diarization'],
   ['gpt-4o-transcribe', 'GPT-4o · Highest accuracy, no labels'],
@@ -72,7 +83,23 @@ function jobErrorCopy(job) {
 }
 
 function modelLabel(model) {
+  if (model === ASSEMBLY_PRO_DIARIZED_MODEL) return 'AssemblyAI · Universal-3.5 Pro with speaker labels';
+  if (model === ASSEMBLY_DIARIZED_MODEL) return 'AssemblyAI · Universal-2 with speaker labels';
+  if (model === ASSEMBLY_PRO_MODEL) return 'AssemblyAI · Universal-3.5 Pro';
+  if (model === ASSEMBLY_MODEL) return 'AssemblyAI · Universal-2';
   return Object.fromEntries(MODELS)[model] || model || 'Unknown model';
+}
+
+function modelForProvider(provider, model) {
+  if (provider === 'assemblyai') return ASSEMBLYAI_MODELS.some(([modelId]) => modelId === model) ? model : ASSEMBLY_MODEL;
+  return ASSEMBLYAI_MODELS.some(([modelId]) => modelId === model) || !MODELS.some(([modelId]) => modelId === model) ? DEFAULT_MODEL : model;
+}
+
+function assemblyModelDescription(model) {
+  if (model === ASSEMBLY_PRO_DIARIZED_MODEL) return 'Highest accuracy · speaker labels · $0.23 per audio hour.';
+  if (model === ASSEMBLY_DIARIZED_MODEL) return 'Broad language coverage · speaker labels · $0.17 per audio hour.';
+  if (model === ASSEMBLY_PRO_MODEL) return 'Highest accuracy · 18 languages · $0.21 per audio hour.';
+  return 'Broad language coverage · 99+ languages · $0.15 per audio hour.';
 }
 
 function languageLabel(language) {
@@ -128,7 +155,7 @@ function App() {
   const orderedJobs = useMemo(() => [...jobs].sort((a, b) => (b.created || 0) - (a.created || 0)), [jobs]);
   const isDiarize = settings.model === DEFAULT_MODEL;
   const activeAPIKey = settings.provider === 'assemblyai' ? settings.assemblyai_api_key : settings.api_key;
-  const availableModels = settings.provider === 'assemblyai' ? [[ASSEMBLY_MODEL, 'Universal-2']] : MODELS;
+  const availableModels = settings.provider === 'assemblyai' ? ASSEMBLYAI_MODELS : MODELS;
   const readyToSubmit = settingsReady && Boolean(file) && Boolean(activeAPIKey.trim()) && !uploading && !validatingKey && !retryingJobId;
 
   const updateJob = useCallback((incoming) => {
@@ -168,7 +195,8 @@ function App() {
     apiData(api.GET('/api/config', { cache: 'no-store' }), 'Could not load saved settings.')
       .then((config) => {
         if (cancelled) return;
-        setSettings({ provider: config.provider || 'openai', api_key: config.api_key || '', assemblyai_api_key: config.assemblyai_api_key || '', model: config.model || DEFAULT_MODEL, language: config.language || '', prompt: config.prompt || '' });
+        const provider = config.provider || 'openai';
+        setSettings({ provider, api_key: config.api_key || '', assemblyai_api_key: config.assemblyai_api_key || '', model: modelForProvider(provider, config.model || DEFAULT_MODEL), language: config.language || '', prompt: config.prompt || '' });
         setSettingsReady(true);
         setConfigStatus('Saved locally');
       })
@@ -299,7 +327,7 @@ function App() {
   const updateSetting = (key, value) => {
     setSettingsTouched(true);
     setSettings((current) => {
-      if (key === 'provider') return { ...current, provider: value, model: value === 'assemblyai' ? ASSEMBLY_MODEL : (current.provider === 'assemblyai' ? DEFAULT_MODEL : current.model) };
+      if (key === 'provider') return { ...current, provider: value, model: modelForProvider(value, current.model) };
       return { ...current, [key]: value };
     });
     if (key === 'api_key' || key === 'assemblyai_api_key' || key === 'provider') setKeyCheck({ status: 'unchecked', message: '' });
@@ -481,11 +509,30 @@ function App() {
 
   const costInfo = useMemo(() => {
     if (!file) return null;
+    if (settings.provider === 'assemblyai') {
+      const rate = ASSEMBLYAI_MODEL_COST_PER_HOUR[settings.model];
+      if (rate == null) return { title: 'Pricing details', amount: '—', detail: `No published rate for ${modelLabel(settings.model)}.` };
+      const unitRate = `$${rate.toFixed(2)} per audio hour`;
+      if (!Number.isFinite(audioDuration) || audioDuration <= 0) {
+        return {
+          title: 'Estimated cost',
+          amount: '—',
+          detail: `${modelLabel(settings.model)} · ${unitRate} · ${durationUnavailable ? 'Duration unavailable in this browser.' : 'Reading media duration…'} Estimate assumes one audio channel; multichannel files are billed per channel.`,
+          pricingURL: ASSEMBLYAI_PRICING_URL,
+        };
+      }
+      const estimate = audioDuration / 3600 * rate;
+      return {
+        title: 'Estimated cost',
+        amount: `$${estimate.toFixed(estimate < 0.01 ? 4 : 2)} USD`,
+        detail: `${modelLabel(settings.model)} · About ${formatDuration(audioDuration)} · ${unitRate} · Estimate assumes one audio channel; multichannel files are billed per channel.`,
+        pricingURL: ASSEMBLYAI_PRICING_URL,
+      };
+    }
     if (!Number.isFinite(audioDuration) || audioDuration <= 0) {
       return { title: 'Estimated cost', amount: '—', detail: durationUnavailable ? 'Duration unavailable in this browser; estimate can’t be calculated.' : 'Reading media duration…' };
     }
     const rate = MODEL_COST_PER_MINUTE[settings.model];
-    if (settings.provider === 'assemblyai') return { title: 'Pricing details', amount: 'Check provider pricing', detail: `AssemblyAI Universal-2 · ${formatDuration(audioDuration)}` };
     if (rate == null) return { title: 'Pricing details', amount: 'Token-based', detail: `Billed by input and output tokens · ${formatDuration(audioDuration)}` };
     const estimate = audioDuration / 60 * rate;
     return { title: 'Estimated cost', amount: `$${estimate.toFixed(estimate < 0.01 ? 4 : 2)} USD`, detail: `About ${formatDuration(audioDuration)} · $${rate.toFixed(3)} per audio minute` };
@@ -559,11 +606,11 @@ function App() {
                 </>}
                 <div className="step-head options-head"><div className="step-title">Settings</div><Button className="text-button" type="button" onClick={() => setAdvancedOpen((open) => !open)} variant="subtle" size="xs">{advancedOpen ? 'Hide context' : 'Add context'}</Button></div>
                 <div className="controls">
-                  <Select className="field" label="Model" description={settings.provider === 'assemblyai' ? 'AssemblyAI Universal-2 transcription.' : 'Speaker labels separate voices.'} value={settings.model} onChange={(value) => updateSetting('model', value || DEFAULT_MODEL)} data={availableModels.map(([value, label]) => ({ value, label }))} disabled={uploading} size="sm" styles={{ label: { fontSize: 10 }, description: { fontSize: 10 }, input: { height: 38, fontSize: 12 } }} />
+                  <Select className="field" label="Model" description={settings.provider === 'assemblyai' ? assemblyModelDescription(settings.model) : 'Speaker labels separate voices.'} value={settings.model} onChange={(value) => updateSetting('model', value || DEFAULT_MODEL)} data={availableModels.map(([value, label]) => ({ value, label }))} disabled={uploading} size="sm" styles={{ label: { fontSize: 10 }, description: { fontSize: 10 }, input: { height: 38, fontSize: 12 } }} />
                   <Select className="field" label="Language" value={settings.language || 'auto'} onChange={(value) => updateSetting('language', value && value !== 'auto' ? value : '')} data={LANGUAGES.map(([value, label]) => ({ value, label }))} disabled={uploading} size="sm" styles={{ label: { fontSize: 10 }, input: { height: 38, fontSize: 12 } }} />
                 </div>
                 {advancedOpen && <div className="advanced"><Textarea className="field" label="Context and vocabulary" rows={3} value={settings.prompt} onChange={(event) => updateSetting('prompt', event.currentTarget.value)} disabled={uploading || isDiarize || settings.provider === 'assemblyai'} placeholder={settings.provider === 'assemblyai' ? 'Unavailable with AssemblyAI.' : isDiarize ? 'Unavailable with speaker diarization.' : 'Names, acronyms, or specialist terms'} description="Help the model recognize specific words." size="sm" styles={{ label: { fontSize: 10 }, description: { fontSize: 10 }, input: { fontSize: 12 } }} /></div>}
-                {costInfo && <div className="cost-estimate"><div className="cost-copy"><strong>{costInfo.title}</strong><small>{costInfo.detail}</small></div><div className="cost-amount">{costInfo.amount}</div></div>}
+                {costInfo && <div className="cost-estimate"><div className="cost-copy"><strong>{costInfo.title}</strong><small>{costInfo.detail}{costInfo.pricingURL && <> · <a className="cost-link" href={costInfo.pricingURL} target="_blank" rel="noreferrer">Pricing details</a></>}</small></div><div className="cost-amount">{costInfo.amount}</div></div>}
                 {error && <Alert className="error" color="red" variant="light" role="alert">{error}</Alert>}
                 <Button className="primary-button" type="submit" disabled={!readyToSubmit} loading={uploading || validatingKey} fullWidth color="green">{validatingKey ? 'Checking API key…' : uploadProgress !== null ? uploadProgress >= 100 ? 'Finishing upload…' : `Uploading audio… ${uploadProgress}%` : uploading ? 'Preparing transcription…' : 'Start transcription'}</Button>
                 {uploadProgress !== null && <div className="upload-progress"><div className="upload-progress-label"><span role="status" aria-live="polite">{uploadProgress >= 100 ? 'Upload sent; waiting for the server' : 'Uploading audio'}</span><span>{uploadProgress}%</span></div><div className="upload-progress-track" role="progressbar" aria-label={uploadProgress >= 100 ? 'Audio uploaded; waiting for server response' : 'Audio upload progress'} aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadProgress}><span style={{ width: `${uploadProgress}%` }} /></div></div>}

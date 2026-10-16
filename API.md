@@ -24,7 +24,7 @@ Response (`202 Accepted`):
 
 Optional headers:
 
-- `X-Model`: OpenAI `gpt-4o-transcribe-diarize`, `gpt-4o-transcribe`, or `whisper-1`; AssemblyAI `assemblyai-universal-2`. The model must belong to the currently selected provider in Settings.
+- `X-Model`: OpenAI `gpt-4o-transcribe-diarize`, `gpt-4o-transcribe`, or `whisper-1`; AssemblyAI `assemblyai-universal-3-5-pro`, `assemblyai-universal-2`, `assemblyai-universal-3-5-pro-diarize`, or `assemblyai-universal-2-diarize`. The model must belong to the currently selected provider in Settings.
 - `X-Name`: transcript label (up to 200 characters); defaults to the filename stem
 - `X-Language`: language code such as `en` or `fr`
 - `X-Prompt`: vocabulary or context hint (up to 4,000 characters)

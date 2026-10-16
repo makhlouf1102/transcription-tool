@@ -203,3 +203,4 @@ body{background:var(--paper);color:var(--ink);font-size:14px}
   .setup-callout{flex-direction:column}
   .setup-button{width:100%}
 }
+.cost-link{color:#315e43;text-decoration:underline;text-underline-offset:2px;white-space:nowrap}

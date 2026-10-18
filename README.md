@@ -9,7 +9,7 @@ Go 1.21+, Node.js with npm, [Just](https://just.systems/), Docker, and FFmpeg wi
 ## Commands
 
 ```sh
-# Install frontend dependencies (once).
+# Install workspace dependencies (once).
 just setup
 
 # Build the frontend and run the app locally.
@@ -26,6 +26,22 @@ just docker-down
 
 # Build the frontend only.
 just build-frontend
+```
+
+## Nx workspace
+
+The Go server and React frontend are separate Nx projects under `apps/`.
+
+```sh
+# List projects and inspect the dependency graph.
+npx nx show projects
+npx nx graph
+
+# Run project tasks directly.
+npx nx run frontend:build
+npx nx run frontend:typecheck
+npx nx run backend:test
+npx nx run backend:build
 ```
 
 Open [http://clearword.localhost](http://clearword.localhost) after starting the app.

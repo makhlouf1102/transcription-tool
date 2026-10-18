@@ -3,11 +3,11 @@ FROM golang:1.25-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache ca-certificates
 
-COPY go.mod go.sum ./
+COPY apps/backend/go.mod apps/backend/go.sum ./
 RUN go mod download
 
-COPY main.go ./
-COPY web ./web
+COPY apps/backend/main.go ./
+COPY apps/frontend/web ./web
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/clearword .
 
 FROM alpine:3.22

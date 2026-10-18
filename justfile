@@ -1,15 +1,15 @@
-# Install the local React frontend build dependencies.
+# Install the monorepo's Node.js dependencies.
 setup:
     npm ci
 
-# Bundle the React frontend and Mantine styles into web/app.js and web/app.css.
+# Build the frontend app with Nx.
 build-frontend:
-    npm run build
+    npx nx run frontend:build
 
 # Bundle the frontend and start the local transcription server.
 run: build-frontend
     APP_PORT="${PORT:-8766}" docker compose up -d --wait caddy whisper
-    WHISPER_URL="http://127.0.0.1:5052" go run -buildvcs=false .
+    cd apps/backend && WEB_DIR=../frontend/web WHISPER_URL="http://127.0.0.1:5052" go run -buildvcs=false .
 
 # Build and run the Docker Compose stack in the foreground.
 docker-up:

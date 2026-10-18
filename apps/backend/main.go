@@ -226,7 +226,11 @@ func routes() http.Handler {
 	mux.HandleFunc("/api/jobs/", jobHandler)
 	mux.HandleFunc("/api/v1/transcriptions", v1CollectionHandler)
 	mux.HandleFunc("/api/v1/transcriptions/", v1JobHandler)
-	webDir, err := filepath.Abs("web")
+	webDir := os.Getenv("WEB_DIR")
+	if webDir == "" {
+		webDir = "web"
+	}
+	webDir, err := filepath.Abs(webDir)
 	if err != nil {
 		log.Fatal(err)
 	}

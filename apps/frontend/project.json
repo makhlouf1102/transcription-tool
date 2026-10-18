@@ -1,0 +1,36 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "frontend",
+  "projectType": "application",
+  "sourceRoot": "apps/frontend/src",
+  "targets": {
+    "generate-api": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npm run generate:api",
+        "cwd": "apps/frontend"
+      },
+      "outputs": ["{projectRoot}/src/api-schema.d.ts"]
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["generate-api"],
+      "options": {
+        "command": "npm run typecheck",
+        "cwd": "apps/frontend"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npm run build",
+        "cwd": "apps/frontend"
+      },
+      "outputs": [
+        "{projectRoot}/web/app.js",
+        "{projectRoot}/web/app.css",
+        "{projectRoot}/src/api-schema.d.ts"
+      ]
+    }
+  }
+}

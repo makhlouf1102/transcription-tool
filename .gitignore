@@ -8,3 +8,5 @@ __pycache__/
 /clearword
 /clearword.exe
 /node_modules/
+/.nx/
+/dist/
